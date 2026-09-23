@@ -1,39 +1,52 @@
-// use anchor_lang::prelude::*;
-// use anchor_spl::token_interface::{transfer_checked, TokenInterface, TransferChecked};
+use anchor_lang::prelude::*;
+use anchor_spl::{
+    token_2022::spl_token_2022::{
+        extension::{
+            transfer_fee::TransferFeeConfig, BaseStateWithExtensions, StateWithExtensions,
+        },
+        state::Mint as MintState,
+    },
+    token_interface::{transfer_checked_with_fee, Mint, TokenInterface, TransferCheckedWithFee},
+};
 
-// #[derive(Accounts)]
-// pub struct PermanentDelegateSeize<'info> {
-//     /// CHECK: validated by Token-2022. Note it is not a signer.
-//     #[account(mut, owner = token_program.key())]
-//     pub source: UncheckedAccount<'info>,
-//     /// CHECK: validated by Token-2022.
-//     #[account(owner = token_program.key())]
-//     pub mint: UncheckedAccount<'info>,
-//     /// CHECK: validated by Token-2022.
-//     #[account(mut, owner = token_program.key())]
-//     pub destination: UncheckedAccount<'info>,
-//     pub permanent_delegate: Signer<'info>,
+use crate::error::MintError;
 
-//     pub token_program: Interface<'info, TokenInterface>,
-// }
+#[derive(Accounts)]
+pub struct PermanentDelegateSeize<'info> {
+    #[account(mut)]
+    pub permanent_delegate: Signer<'info>,
+    #[account(owner = token_program.key())]
+    pub mint: InterfaceAccount<'info, Mint>,
+    /// CHECK: Validated by Token-2022 CPI during transfer.
+    #[account(mut, owner = token_program.key())]
+    pub source: UncheckedAccount<'info>,
+    /// CHECK: Validated by Token-2022 CPI during transfer.
+    #[account(mut, owner = token_program.key())]
+    pub destination: UncheckedAccount<'info>,
 
-// impl<'info> PermanentDelegateSeize<'info> {
-//     pub fn permanent_delegate_seize(
-//         ctx: Context<PermanentDelegateSeize>,
-//         amount: u64,
-//         decimals: u8,
-//     ) -> Result<()> {
-//         let accounts = TransferChecked {
-//             from: ctx.accounts.source.to_account_info(),
-//             mint: ctx.accounts.mint.to_account_info(),
-//             to: ctx.accounts.destination.to_account_info(),
-//             authority: ctx.accounts.permanent_delegate.to_account_info(),
-//         };
+    pub token_program: Interface<'info, TokenInterface>,
+}
 
-//         let cpi_ctx = CpiContext::new(ctx.accounts.token_program.key(), accounts);
+impl<'info> PermanentDelegateSeize<'info> {
+    pub fn seize_tokens(&mut self, amount: u64, decimals: u8) -> Result<()> {
+        let mint_info = self.mint.to_account_info();
+        let mint_data = mint_info.try_borrow_data()?;
+        let mint_state = StateWithExtensions::<MintState>::unpack(&mint_data)?;
+        let fee = mint_state
+            .get_extension::<TransferFeeConfig>()?
+            .calculate_epoch_fee(Clock::get()?.epoch, amount)
+            .ok_or(MintError::MathsOverflow)?;
 
-//         transfer_checked(cpi_ctx, amount, decimals)?;
-//         msg!("seized {} without holder consent", amount);
-//         Ok(())
-//     }
-// }
+        let accounts = TransferCheckedWithFee {
+            token_program_id: self.token_program.to_account_info(),
+            source: self.source.to_account_info(),
+            destination: self.destination.to_account_info(),
+            mint: self.mint.to_account_info(),
+            authority: self.permanent_delegate.to_account_info(),
+        };
+
+        let ctx = CpiContext::new(self.token_program.key(), accounts);
+
+        transfer_checked_with_fee(ctx, amount, decimals, fee)
+    }
+}

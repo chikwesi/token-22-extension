@@ -5,35 +5,18 @@ use anchor_lang::{
 use anchor_spl::{
     token_2022::{
         initialize_mint2,
-        spl_token_2022::{extension::ExtensionType, state::Mint as MintState},
+        spl_token_2022::{extension::ExtensionType, state::AccountState, state::Mint as MintState},
         InitializeMint2,
     },
+    token_2022_extensions::{
+        default_account_state::{default_account_state_initialize, DefaultAccountStateInitialize},
+        metadata_pointer::{metadata_pointer_initialize, MetadataPointerInitialize},
+    },
     token_interface::{
-        mint_close_authority_initialize, transfer_fee_initialize, Mint,
-        MintCloseAuthorityInitialize, TokenInterface, TransferFeeInitialize,
+        mint_close_authority_initialize, transfer_fee_initialize, MintCloseAuthorityInitialize,
+        TokenInterface, TransferFeeInitialize,
     },
 };
-
-#[derive(Accounts)]
-#[instruction(decimals: u8)]
-pub struct CreateMintDeclarative<'info> {
-    #[account(mut)]
-    pub payer: Signer<'info>,
-    #[account(
-        init,
-        payer = payer,
-        mint::decimals = decimals,
-        mint::authority = payer,
-        mint::token_program = token_program,
-        extensions::close_authority::authority = payer,
-        extensions::metadata_pointer::authority = payer,
-        extensions::metadata_pointer::metadata_address = payer,
-    )]
-    pub mint: InterfaceAccount<'info, Mint>,
-
-    pub token_program: Interface<'info, TokenInterface>,
-    pub system_program: Program<'info, System>,
-}
 
 #[derive(Accounts)]
 pub struct CreateMintWithFee<'info> {
@@ -56,6 +39,8 @@ impl<'info> CreateMintWithFee<'info> {
     ) -> Result<()> {
         let extensions = [
             ExtensionType::MintCloseAuthority,
+            ExtensionType::MetadataPointer,
+            ExtensionType::DefaultAccountState,
             ExtensionType::TransferFeeConfig,
         ];
 
@@ -94,10 +79,34 @@ impl<'info> CreateMintWithFee<'info> {
             maximum_fee,
         )?;
 
+        let metadata_pointer_acct = MetadataPointerInitialize {
+            token_program_id: self.token_program.to_account_info(),
+            mint: self.mint.to_account_info(),
+        };
+        let metadata_pointer_ctx = CpiContext::new(self.token_program.key(), metadata_pointer_acct);
+        metadata_pointer_initialize(
+            metadata_pointer_ctx,
+            Some(self.payer.key()),
+            Some(self.mint.key()),
+        )?;
+
+        let default_account_state_acct = DefaultAccountStateInitialize {
+            token_program_id: self.token_program.to_account_info(),
+            mint: self.mint.to_account_info(),
+        };
+        let default_account_state_ctx =
+            CpiContext::new(self.token_program.key(), default_account_state_acct);
+        default_account_state_initialize(default_account_state_ctx, &AccountState::Frozen)?;
+
         let sealed_mint_acct = InitializeMint2 {
             mint: self.mint.to_account_info(),
         };
         let sealed_mint_ctx = CpiContext::new(self.token_program.key(), sealed_mint_acct);
-        initialize_mint2(sealed_mint_ctx, decimals, &self.payer.key(), None)
+        initialize_mint2(
+            sealed_mint_ctx,
+            decimals,
+            &self.payer.key(),
+            Some(&self.payer.key()),
+        )
     }
 }

@@ -26,6 +26,8 @@ anchor-spl = { version = "1.1.2", features = [
     "token_2022",
     "token_2022_extensions",
 ] }
+proofext = { package = "spl-token-confidential-transfer-proof-extraction", version = "0.5" }
+zksdk = { package = "solana-zk-sdk", version = "4" }
 
 [dev-dependencies]
 litesvm = "0.10.0"
@@ -38,8 +40,8 @@ solana-system-interface = "3.2"
 solana-compute-budget-interface = "3"
 zk = { package = "solana-zk-sdk", version = "7" }
 t22new = { package = "spl-token-2022-interface", version = "3.1" }
-proofgen = { package = "spl-token-confidential-transfer-proof-generation", version = "0.6" }
-proofext = { package = "spl-token-confidential-transfer-proof-extraction", version = "0.6" }
+proofgen = { package = "spl-token-confidential-transfer-proof-generation", version = "0.5" }
+proofext = { package = "spl-token-confidential-transfer-proof-extraction", version = "0.5" }
 zkif = { package = "solana-zk-elgamal-proof-interface", version = "0.1" }
 bytemuck = "1"
 
